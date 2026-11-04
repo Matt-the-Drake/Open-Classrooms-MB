@@ -1,7 +1,11 @@
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+from pathlib import Path
+from urllib.parse import urljoin, urlsplit
+
+
+IMAGE_DIR = Path(__file__).resolve().parent / "book_images"
 
 #Creates a function to be called upon inside other codes
 def scrape_book(book_url):
@@ -14,16 +18,27 @@ def scrape_book(book_url):
     
     #finds the table that has information, specifically the UPC code and prices
     table = soup.find('table', class_="table table-striped")
+    upc_code = table.find("th", string="UPC").find_next("td").get_text(strip=True)
+    #finds areticle under "class_="product_page"" which will then be used to get the description and image source (src)
+    article = soup.find("article", class_="product_page")
     #finds the section that contains the description of the book
-    description = soup.find("article", class_="product_page").find_all('p')[3]
-    #finds the link to the image, which is incomplete but will be used later to join the url with the page url to create the full link for the image
-    image_src = soup.find('div', class_="item active").find("img").get("src")
+    description = article.find_all('p')[3]
+    #finds the image source within the file, which falls under the sixth div element of the article under the class "product_page"
+    image_src = article.find_all("div")[5].find("img")["src"]
+    #finds the URL for the image by joining the base url of the page with the image source
+    image_url = urljoin(page.url, image_src)
 
+    IMAGE_DIR.mkdir(exist_ok=True)
+    image_extension = Path(urlsplit(image_url).path).suffix
+    image_path = IMAGE_DIR / f"{upc_code}{image_extension}"
+    image_response = requests.get(image_url)
+    image_response.raise_for_status()
+    image_path.write_bytes(image_response.content)
 
     #returns all information gathered, which allows it to be all sorted into a csv file by a different code
     return{
         "Page URL": page.url,
-        "UPC code": table.find("th", string="UPC").find_next("td").get_text(strip=True),
+        "UPC code": upc_code,
         "Book title": soup.find(class_="col-sm-6 product_main").find("h1").get_text(strip=True),
         "Price excluding tax": table.find("th", string="Price (excl. tax)").find_next("td").get_text(strip=True),
         "Price including tax": table.find("th", string="Price (incl. tax)").find_next("td").get_text(strip=True),
@@ -31,5 +46,6 @@ def scrape_book(book_url):
         "Product description": description.get_text(strip=True),
         "Category": soup.find("ul", class_="breadcrumb").find_all("li")[3].get_text(strip=True),
         "Review rating": soup.find("p", class_="star-rating").get("class")[1],
-        "Image URL": urljoin(page.url, image_src),
+        "Image URL": image_url,
+        "Image file": str(image_path),
     }
